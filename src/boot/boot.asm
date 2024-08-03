@@ -6,12 +6,12 @@ code_segment equ gdt_code - gdt_start ; 0x8
 data_segment equ gdt_data - gdt_start ; 0x10
 
 short_jmp:
-    jmp short _start
+    jmp short _load
     nop
 
 times 33 db 0
 
-_start:
+_load:
     jmp 0:start
 
 start:
@@ -31,6 +31,7 @@ start:
     mov eax, cr0
     or  eax, 0x1
     mov cr0, eax
+
     jmp code_segment:load32
 
 gdt_start:
@@ -65,18 +66,62 @@ gdt_descriptor:
 [bits 32]
 
 load32:
-    mov ax, data_segment
-    mov ds, ax
-    mov es, ax
-    mov fs, ax
-    mov gs, ax
-    mov ss, ax
-    mov ebp, 0x00200000
-    mov esp, ebp
-    jmp $
+    mov eax, 1          ; starting sector
+    mov ecx, 100
+    mov edi, 0x0100000
+    call ata_lba_read
+
+    jmp code_segment:0x0100000
+
+ata_lba_read:
+    mov ebx, eax
+    shr eax, 24
+    or eax, 0xe0 ; master drive
+    mov dx, 0x1f6
+    out dx, al
+
+    mov eax, ecx
+    mov dx, 0x1f2
+    out dx, al
+
+    mov eax, ebx
+    mov dx, 0x1f3
+    out dx, al
+
+    mov dx, 0x1f4
+    mov eax, ebx
+    shr eax, 8
+    out dx, al
+
+    mov dx, 0x1f5
+    mov eax, ebx
+    shr eax, 16
+    out dx, al
+
+    mov dx, 0x1f7
+    mov al, 0x20
+    out dx, al
+
+    ; reading all sectors into mem
+
+.next_sector:
+    push ecx
+
+.try_again:
+    mov dx, 0x1f7
+    in al, dx
+    test al, 8
+    jz .try_again
+
+    mov ecx, 256
+    mov dx, 0x1f0
+    rep insw
+    pop ecx
+
+    loop .next_sector
+
+    ret
 
 times 510-($-$$) db 0
 
 dw 0xaa55
-
-buffer:
